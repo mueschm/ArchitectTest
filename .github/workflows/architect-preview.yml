@@ -1,0 +1,39 @@
+name: Architect Preview Deployment
+
+on:
+  pull_request_target:
+    branches:
+      - master
+    types:
+      - opened
+      - synchronize
+      - reopened
+
+env:
+  ARCHITECT_GENERATED: true
+  ARCHITECT_PREVIEW: true
+  PREVIEW_PREFIX: preview-
+  PREVIEW_TAG: ${{ env.PREVIEW_PREFIX }}${{ github.head_ref }}
+  COMPONENT_FILE_PATH: architect.yml
+  ACCOUNT_NAME: muesch
+  PLATFORM_NAME: architect
+  COMPONENT_NAME: hello-world
+
+jobs:
+  architect_create_preview:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-node@v2
+        with:
+          node-version: '14'
+      - name: Install Architect CLI
+        run: sudo npm install -g @architect-io/cli
+      - name: Login to Architect Cloud
+        run: architect login -e ${{ secrets.ARCHITECT_EMAIL }} -p ${{ secrets.ARCHITECT_PASSWORD }}
+      - name: Register component w/ Architect
+        run: architect register ${{ env.COMPONENT_FILE_PATH }} -t ${{ env.PREVIEW_TAG }}
+      - name: Create env if not exists
+        run: architect environment:create ${{ env.PREVIEW_TAG }} -a ${{ env.ACCOUNT_NAME }} --platform ${{ env.PLATFORM_NAME }} || exit 0
+      - name: Deploy component
+        run: architect deploy --auto-approve -a ${{ env.ACCOUNT_NAME }} -e ${{ env.PREVIEW_TAG }} ${{ env.COMPONENT_NAME }}:${{ env.PREVIEW_TAG }}
