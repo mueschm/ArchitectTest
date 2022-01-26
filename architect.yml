@@ -1,0 +1,106 @@
+name: muesch/react-app
+description: |
+  Example component that includes a Next.js frontend, Node.js backend, and a postgres database.
+homepage: https://github.com/architect-team/architect-cli/tree/master/examples/react-app
+keywords:
+  - react
+  - next.js
+  - express
+  - postgres
+
+interfaces:
+  app:
+    url: ${{ services.app.interfaces.main.url }}
+    ingress:
+      subdomain: app
+
+parameters:
+  api_db_host:
+    description: API database host override
+    required: false
+  db_use_ssl:
+    description: Whether or not the database connection should use SSL
+    default: false
+  api_db_name:
+    description: Name of the database used by the API
+    default: test_database
+  app_replicas:
+    description: Number of instances of the react frontend
+    default: 1
+  root_db_pass:
+    description: Root password to assign to the generated database
+    default: architect
+  root_db_user:
+    description: Root user to assign to the generated database
+    default: postgres
+  world_text:
+    description: Default greeting text for the landing page
+    default: world
+
+services:
+  api-db:
+    image: postgres:11
+    interfaces:
+      postgres:
+        host: ${{ parameters.api_db_host }}
+        port: 5432
+        username: ${{ parameters.root_db_user }}
+        password: ${{ parameters.root_db_pass }}
+        protocol: postgres
+    environment:
+      POSTGRES_USER: ${{ parameters.root_db_user }}
+      POSTGRES_PASSWORD: ${{ parameters.root_db_pass }}
+      POSTGRES_DB: ${{ parameters.api_db_name }}
+
+  api:
+    depends_on:
+      - api-db
+    build:
+      context: ./backend
+      args:
+        NODE_ENV: production
+    interfaces:
+      main: &api-port 8080
+    liveness_probe:
+      path: /names
+      port: *api-port
+      interval: 10s
+      failure_threshold: 3
+    environment:
+      PORT: *api-port
+      DB_USE_SSL: ${{ parameters.db_use_ssl }}
+      DB_ADDR: ${{ services.api-db.interfaces.postgres.url }}/${{ parameters.api_db_name }}
+    ${{ if architect.environment == 'local' }}:
+      command: npm run start:dev
+      volumes:
+        src:
+          mount_path: /usr/src/app/src
+          host_path: ./backend/src
+
+  app:
+    depends_on:
+      - api
+    build:
+      context: ./frontend
+      args:
+        NODE_ENV: production
+    interfaces:
+      main: &app-port 8080
+    liveness_probe:
+      port: *app-port
+      path: /api/names
+      interval: 10s
+      failure_threshold: 3
+    replicas: ${{ parameters.app_replicas }}
+    environment:
+      PORT: *app-port
+      API_ADDR: ${{ services.api.interfaces.main.url }}
+      WORLD_TEXT: ${{ parameters.world_text }}
+    ${{ if architect.environment == 'local' }}:
+      build:
+        dockerfile: Dockerfile.dev
+        context: ./frontend
+      volumes:
+        src:
+          mount_path: /usr/src/app/src
+          host_path: ./frontend/src
